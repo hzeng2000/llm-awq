@@ -57,6 +57,7 @@ parser.add_argument("--dump_fake", type=str, default=None, help="save fake-quant
 parser.add_argument("--load_quant", type=str, default=None, help="load quantized model")
 # apply/save/load awq
 parser.add_argument("--run_awq", action="store_true", help="perform awq search process")
+parser.add_argument("--run_fp16", action="store_true", help="evaluate fp16 model")
 parser.add_argument(
     "--dump_awq", type=str, default=None, help="save the awq search results"
 )
@@ -116,7 +117,28 @@ def build_model_and_enc(model_path):
             enc = AutoTokenizer.from_pretrained(
                 model_path, use_fast=False, trust_remote_code=True
             )
+    if args.run_fp16:
+        kwargs = {"torch_dtype": torch.float16, "low_cpu_mem_usage": True}
+        model = AutoModelForCausalLM.from_pretrained(
+                model_path, config=config, trust_remote_code=True, **kwargs
+            )
+        kwargs = {"max_memory": max_memory} if len(max_memory) else {}
+        device_map = infer_auto_device_map(
+            model,
+            no_split_module_classes=[
+                "OPTDecoderLayer",
+                "LlamaDecoderLayer",
+                "BloomBlock",
+                "MPTBlock",
+                "DecoderLayer",
+            ],
+            **kwargs,
+        )
+        # Dispatch model
+        model = simple_dispatch_model(model, device_map=device_map)
 
+        model.eval()
+        return model, enc
     if args.load_quant:  # directly load quantized weights
         print("Loading pre-computed quantized weights...")
         with init_empty_weights():

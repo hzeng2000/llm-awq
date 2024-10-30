@@ -1,0 +1,1 @@
+spack load cuda@12.4.1
